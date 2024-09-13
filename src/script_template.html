@@ -1,0 +1,194 @@
+<script>
+let miv_isDragging = false;
+let miv_startX, miv_startY, miv_translateX = 0, miv_translateY = 0, miv_scale = 1;
+let miv_lastTouchDistance = 0;
+let miv_modalImg;
+let miv_doubleTapTimer = null;
+let miv_lastTap = 0;    
+function createModal() {
+    if (!document.getElementById('miv_imageModal')) {
+        const modal = document.createElement('div');
+        modal.id = 'miv_imageModal';
+        modal.className = 'miv_modal';
+        modal.innerHTML = `
+            <span class="miv_close" onclick="miv_closeModal()">&times;</span>
+            <div class="miv_modal-content">
+                <img id="miv_modalImage">
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+}    
+function miv_startDrag(e) {
+    miv_isDragging = true;
+    miv_startX = e.type.includes('mouse') ? e.clientX - miv_translateX : e.touches[0].clientX - miv_translateX;
+    miv_startY = e.type.includes('mouse') ? e.clientY - miv_translateY : e.touches[0].clientY - miv_translateY;
+    if (miv_modalImg) miv_modalImg.style.cursor = 'grabbing';
+}    
+function miv_drag(e) {
+    if (!miv_isDragging) return;
+    e.preventDefault();
+    const clientX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+    const clientY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+    miv_translateX = clientX - miv_startX;
+    miv_translateY = clientY - miv_startY;
+    miv_updateImageTransform();
+}    
+function miv_endDrag() {
+    miv_isDragging = false;
+    if (miv_modalImg) miv_modalImg.style.cursor = 'move';
+}    
+function miv_startTouch(e) {
+    if (e.touches.length === 2) {
+        miv_lastTouchDistance = miv_getTouchDistance(e.touches);
+    } else if (e.touches.length === 1) {
+        miv_startDrag(e);
+        const currentTime = new Date().getTime();
+        const tapLength = currentTime - miv_lastTap;
+        clearTimeout(miv_doubleTapTimer);
+        if (tapLength < 300 && tapLength > 0) {
+            e.preventDefault();
+            miv_resetZoom();
+        } else {
+            miv_doubleTapTimer = setTimeout(() => {
+                clearTimeout(miv_doubleTapTimer);
+            }, 300);
+        }
+        miv_lastTap = currentTime;
+    }
+}    
+function miv_moveTouch(e) {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+        const touchDistance = miv_getTouchDistance(e.touches);
+        const scaleDiff = touchDistance / miv_lastTouchDistance;
+        miv_scale *= scaleDiff;
+        miv_scale = Math.min(Math.max(miv_scale, 0.1), 10);
+        miv_lastTouchDistance = touchDistance;        
+        const touchCenter = miv_getTouchCenter(e.touches);
+        miv_translateX += touchCenter.x - (miv_translateX + touchCenter.x) * scaleDiff;
+        miv_translateY += touchCenter.y - (miv_translateY + touchCenter.y) * scaleDiff;        
+        miv_updateImageTransform();
+    } else if (e.touches.length === 1) {
+        miv_drag(e);
+    }
+}
+function miv_endTouch(e) {
+    if (e.touches.length === 0) {
+        miv_endDrag();
+    } else if (e.touches.length === 1) {
+        miv_startDrag(e);
+    }
+}
+function miv_getTouchDistance(touches) {
+    return Math.hypot(
+        touches[0].pageX - touches[1].pageX,
+        touches[0].pageY - touches[1].pageY
+    );
+}
+function miv_getTouchCenter(touches) {
+    return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+    };
+}
+function miv_zoom(e) {
+    e.preventDefault();
+    if (!miv_modalImg) return;
+    const rect = miv_modalImg.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const zoomIntensity = 0.1;
+    const wheel = e.deltaY < 0 ? 1 : -1;
+    const zoom = Math.exp(wheel * zoomIntensity);
+    const newScale = miv_scale * zoom;
+    if (newScale > 0.1 && newScale < 10) {
+        const scaleChange = newScale - miv_scale;
+        miv_translateX -= (mouseX - rect.width / 2) * scaleChange;
+        miv_translateY -= (mouseY - rect.height / 2) * scaleChange;
+        miv_scale = newScale;
+        miv_updateImageTransform();
+    }
+}
+function miv_resetZoom() {
+    miv_scale = 1;
+    miv_translateX = 0;
+    miv_translateY = 0;
+    miv_updateImageTransform();
+}
+function miv_updateImageTransform() {
+    if (miv_modalImg) {
+        miv_modalImg.style.transform = `translate(${miv_translateX}px, ${miv_translateY}px) scale(${miv_scale})`;
+    }
+}
+function miv_openModal(imageSrc) {
+    createModal();
+    const modal = document.getElementById('miv_imageModal');
+    miv_modalImg = document.getElementById('miv_modalImage');
+    const modalContent = modal.querySelector('.miv_modal-content');    
+    if (!modal || !miv_modalImg || !modalContent) {
+        console.error('Modal elements not found');
+        return;
+    }    
+    modal.style.display = 'block';
+    miv_modalImg.src = imageSrc;    
+    miv_resetZoom();        
+    miv_modalImg.addEventListener('mousedown', miv_startDrag);
+    document.addEventListener('mousemove', miv_drag);
+    document.addEventListener('mouseup', miv_endDrag);
+    miv_modalImg.addEventListener('dragstart', (e) => e.preventDefault());    
+    miv_modalImg.addEventListener('touchstart', miv_startTouch);
+    miv_modalImg.addEventListener('touchmove', miv_moveTouch);
+    miv_modalImg.addEventListener('touchend', miv_endTouch);
+    modalContent.addEventListener('wheel', miv_zoom);    
+    miv_modalImg.addEventListener('dblclick', miv_resetZoom);
+}
+function miv_closeModal() {
+    const modal = document.getElementById('miv_imageModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    if (miv_modalImg) {
+        miv_modalImg.style.transform = 'translate(0, 0) scale(1)';        
+        miv_modalImg.removeEventListener('mousedown', miv_startDrag);
+        miv_modalImg.removeEventListener('touchstart', miv_startTouch);
+        miv_modalImg.removeEventListener('touchmove', miv_moveTouch);
+        miv_modalImg.removeEventListener('touchend', miv_endTouch);
+        miv_modalImg.removeEventListener('dblclick', miv_resetZoom);
+    }
+    document.removeEventListener('mousemove', miv_drag);
+    document.removeEventListener('mouseup', miv_endDrag);
+    const modalContent = document.querySelector('.miv_modal-content');
+    if (modalContent) {
+        modalContent.removeEventListener('wheel', miv_zoom);
+    }
+}
+function handleGlobalClick(event) {
+    const modal = document.getElementById('miv_imageModal');
+    if (modal && event.target == modal) {
+        miv_closeModal();
+    }
+}
+function initializeImageViewers() {
+    const images = document.querySelectorAll('.miv_mdbook-image-viewer');
+    images.forEach(img => {
+        img.addEventListener('click', () => miv_openModal(img.src));
+    });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    createModal();
+    initializeImageViewers();
+    document.addEventListener('click', handleGlobalClick);
+});
+// Re-initialize image viewers when the page content changes (for mdBook)
+if (window.MutationObserver) {
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList') {
+                initializeImageViewers();
+            }
+        });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+</script>
